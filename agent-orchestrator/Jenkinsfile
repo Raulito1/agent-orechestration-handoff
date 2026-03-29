@@ -1,0 +1,94 @@
+// Convention Guard — Jenkinsfile
+//
+// Triggered automatically on Bitbucket pull request events via a Generic Webhook Trigger.
+//
+// ──────────────────────────────────────────────────────────────────────────────
+// BITBUCKET WEBHOOK SETUP
+// ──────────────────────────────────────────────────────────────────────────────
+// 1. In your Bitbucket repository, go to:
+//      Repository Settings → Webhooks → Add webhook
+//
+// 2. Set the URL to:
+//      https://<jenkins-host>/generic-webhook-trigger/invoke?token=<your-secret-token>
+//
+// 3. Enable the "Pull Request" triggers:
+//      - Pull request created
+//      - Pull request updated (new commits pushed)
+//
+// 4. In the Jenkins job, configure the Generic Webhook Trigger plugin to extract:
+//      - APP_ID  → JSONPath: $.pullRequest.destination.repository.name  (or a custom field)
+//      - PR_ID   → JSONPath: $.pullRequest.id
+//
+//    Map these to the APP_ID and PR_ID environment variables below.
+//
+// 5. Store credentials in Jenkins (Manage Jenkins → Credentials):
+//      - ID: anthropic-api-key       (Secret text)
+//      - ID: bitbucket-username      (Secret text)
+//      - ID: bitbucket-app-password  (Secret text)
+//
+// ──────────────────────────────────────────────────────────────────────────────
+
+pipeline {
+    agent any
+
+    triggers {
+        // Generic Webhook Trigger plugin receives the Bitbucket PR payload.
+        // APP_ID and PR_ID are injected from the payload by the plugin's
+        // JSONPath variable extraction configured in the job settings.
+        genericTrigger(
+            genericVariables: [
+                [key: 'APP_ID', value: '$.pullRequest.destination.repository.name'],
+                [key: 'PR_ID',  value: '$.pullRequest.id']
+            ],
+            token: 'convention-guard-webhook-token',
+            causeString: 'Triggered by Bitbucket PR #$PR_ID in $APP_ID',
+            printContributedVariables: true,
+            printPostContent: false
+        )
+    }
+
+    environment {
+        ANTHROPIC_API_KEY    = credentials('anthropic-api-key')
+        BITBUCKET_USERNAME   = credentials('bitbucket-username')
+        BITBUCKET_APP_PASSWORD = credentials('bitbucket-app-password')
+        // LOCAL=false forces the Bitbucket connector (reads via API, posts PR comments)
+        LOCAL = 'false'
+    }
+
+    stages {
+        stage('Setup') {
+            steps {
+                sh 'pip install -e .'
+            }
+        }
+
+        stage('Convention Guard') {
+            steps {
+                // Exit code 1 from cli.py will fail this stage and the build.
+                // The CLI also posts a formatted PR comment to Bitbucket automatically.
+                sh 'python cli.py guard --app ${APP_ID} --pr-id ${PR_ID}'
+            }
+        }
+    }
+
+    post {
+        failure {
+            // Build already failed because cli.py exited with code 1 (critical violations).
+            // The PR comment was already posted by the CLI before exiting.
+            echo 'Convention Guard: critical violations found — PR is blocked.'
+        }
+        success {
+            echo 'Convention Guard: all checks passed.'
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// VALIDATION
+// ──────────────────────────────────────────────────────────────────────────────
+// To validate this Jenkinsfile locally before committing:
+//   1. Install the Jenkins CLI jar:  https://www.jenkins.io/doc/book/managing/cli/
+//   2. Run:
+//        java -jar jenkins-cli.jar -s http://<jenkins-host>/ declarative-linter < Jenkinsfile
+//   3. Alternatively, use the Blue Ocean Pipeline Editor in Jenkins UI which
+//      validates the syntax interactively.

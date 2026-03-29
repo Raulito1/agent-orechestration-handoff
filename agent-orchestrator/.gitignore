@@ -1,0 +1,21 @@
+# Environment
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Build / install
+*.egg-info/
+dist/
+build/
+
+# Test cache
+.pytest_cache/
+.coverage
+
+# Health monitor output (local history — not committed)
+output/health/
+
+# General output (generated code previews)
+output/

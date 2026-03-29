@@ -1,0 +1,26 @@
+pipeline {
+  agent any
+  triggers {
+    cron('0 6 * * *')  // 6am daily
+  }
+  environment {
+    ANTHROPIC_API_KEY = credentials('anthropic-api-key')
+    BITBUCKET_USERNAME = credentials('bitbucket-username')
+    BITBUCKET_APP_PASSWORD = credentials('bitbucket-app-password')
+    SLACK_WEBHOOK_URL = credentials('slack-webhook-url')
+    LOCAL = 'false'
+  }
+  stages {
+    stage('Health Monitor') {
+      steps {
+        sh 'pip install -e .'
+        sh 'python cli.py health'
+      }
+    }
+  }
+  post {
+    always {
+      archiveArtifacts artifacts: 'output/health/*.md', allowEmptyArchive: true
+    }
+  }
+}

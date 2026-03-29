@@ -1,0 +1,56 @@
+apps:
+  - id: new-hire
+    name: New Hire Experience
+    stack: fastapi-react
+    local:
+      api_path: /TODO/path/to/new-hire-api
+      web_path: /TODO/path/to/new-hire-web
+    bitbucket:
+      workspace: workspace-a
+      api_repo: TODO-new-hire-api-slug
+      web_repo: TODO-new-hire-web-slug
+    contexts:
+      api: contexts/fastapi.md
+      web: contexts/react.md
+
+  - id: new-client
+    name: New Client Experience
+    stack: fastapi-react
+    local:
+      api_path: /TODO/path/to/new-client-api
+      web_path: /TODO/path/to/new-client-web
+    bitbucket:
+      workspace: workspace-a
+      api_repo: TODO-new-client-api-slug
+      web_repo: TODO-new-client-web-slug
+    contexts:
+      api: contexts/fastapi.md
+      web: contexts/react.md
+
+  - id: agm
+    name: AGM
+    stack: java-react
+    local:
+      api_path: /TODO/path/to/agm-api
+      web_path: /TODO/path/to/agm-web
+    bitbucket:
+      workspace: workspace-b
+      api_repo: TODO-agm-api-slug
+      web_repo: TODO-agm-web-slug
+    contexts:
+      api: contexts/spring-boot.md
+      web: contexts/react.md
+
+  - id: peekr
+    name: Peekr
+    stack: java-react
+    local:
+      api_path: /TODO/path/to/peekr-api
+      web_path: /TODO/path/to/peekr-web
+    bitbucket:
+      workspace: workspace-b
+      api_repo: TODO-peekr-api-slug
+      web_repo: TODO-peekr-web-slug
+    contexts:
+      api: contexts/spring-boot.md
+      web: contexts/react.md
