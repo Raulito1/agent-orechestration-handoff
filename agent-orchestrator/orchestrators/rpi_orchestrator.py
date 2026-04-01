@@ -7,6 +7,7 @@ all_repos(project=None)      → list[dict]   (each dict has _project injected)
 expand_coupled(selected, all_) → list[dict]
 load_status()                → dict
 save_status(data)            → None
+build_prompt(repo, phase, task) → str
 run_phase_parallel(repos, phase, echo) → dict[str, bool]   (awaitable)
 
 Internal
@@ -37,12 +38,21 @@ _REPO_ROOT = Path(__file__).parent.parent
 _PROJECTS_FILE = _REPO_ROOT / "projects.yaml"
 _TASKS_DIR = _REPO_ROOT / "tasks"
 _STATUS_FILE = _TASKS_DIR / "status.json"
+_SKILLS_DIR = _REPO_ROOT / ".roo" / "skills"
 
 # Output file written for each phase (None = roo writes into the target repo)
 _PHASE_OUTPUT: dict[str, str | None] = {
     "research": "{repo}-RESEARCH.md",
     "plan": "{repo}-PLAN.md",
     "implement": None,
+}
+
+# Maps projects.yaml stack values to skill file names.
+# Add entries here when new stacks are introduced.
+_STACK_SKILL: dict[str, str] = {
+    "fastapi": "SKILL-fastapi.md",
+    "java-spring": "SKILL-java-spring.md",
+    "react": "SKILL-react.md",
 }
 
 
@@ -137,6 +147,45 @@ def _set_phase_status(repo_name: str, phase: str, status: str) -> None:
         "updated": datetime.now().isoformat(timespec="seconds"),
     }
     save_status(data)
+
+
+# ---------------------------------------------------------------------------
+# Prompt assembly
+# ---------------------------------------------------------------------------
+
+
+def build_prompt(repo: dict, phase: str, task: str) -> str:
+    """Assemble the full prompt for *repo* in *phase* from skill files + task.
+
+    Loads two skill files and concatenates them with the task brief:
+
+        .roo/skills/SKILL-rpi-{phase}.md     — phase-level rules (research/plan/implement)
+        .roo/skills/SKILL-{stack}.md         — stack-specific conventions
+
+    Separated by ``---`` so roo can parse sections if needed.
+
+    Missing skill files are silently skipped — the task brief is always
+    included even if both skill files are absent.
+    """
+    parts: list[str] = []
+
+    # Phase skill
+    phase_skill_file = _SKILLS_DIR / f"SKILL-rpi-{phase}.md"
+    if phase_skill_file.exists():
+        parts.append(phase_skill_file.read_text(encoding="utf-8").strip())
+
+    # Stack skill
+    stack: str = repo.get("stack", "")
+    stack_skill_name = _STACK_SKILL.get(stack)
+    if stack_skill_name:
+        stack_skill_file = _SKILLS_DIR / stack_skill_name
+        if stack_skill_file.exists():
+            parts.append(stack_skill_file.read_text(encoding="utf-8").strip())
+
+    # Task brief is always last
+    parts.append(task.strip())
+
+    return "\n\n---\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -257,10 +306,10 @@ async def run_phase_parallel(
             skipped[repo_name] = False
             continue
 
-        prompt = task_file.read_text(encoding="utf-8").strip()
+        raw_task = task_file.read_text(encoding="utf-8").strip()
         # Strip HTML comment stubs so empty placeholder files are treated as absent.
         stripped = "\n".join(
-            line for line in prompt.splitlines()
+            line for line in raw_task.splitlines()
             if not line.strip().startswith("<!--")
         ).strip()
 
@@ -272,7 +321,8 @@ async def run_phase_parallel(
             skipped[repo_name] = False
             continue
 
-        coroutines.append(_run_roo(repo, phase, prompt, echo))
+        full_prompt = build_prompt(repo, phase, raw_task)
+        coroutines.append(_run_roo(repo, phase, full_prompt, echo))
 
     if not coroutines:
         return skipped
