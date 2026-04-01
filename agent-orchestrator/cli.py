@@ -17,9 +17,11 @@ app = typer.Typer(help="Agent Orchestrator — AI-powered multi-app CLI.")
 
 log_app = typer.Typer(help="Log work items (bug, feature, spike, enhancement, chore).")
 work_app = typer.Typer(help="Query work items and patterns.")
+rpi_app = typer.Typer(help="RPI workflow: Research → Plan → Implement across repos in parallel.")
 
 app.add_typer(log_app, name="log")
 app.add_typer(work_app, name="work")
+app.add_typer(rpi_app, name="rpi")
 
 
 # ---------------------------------------------------------------------------
@@ -643,6 +645,244 @@ def health(
     typer.echo(digest.to_slack_text())
     typer.echo("")
     typer.echo(f"Output written to: output/health/{digest.run_date}.md")
+
+
+# ---------------------------------------------------------------------------
+# RPI — Research → Plan → Implement
+# ---------------------------------------------------------------------------
+
+
+def _rpi_resolve_repos(
+    project: Optional[str],
+    repo: Optional[str],
+) -> list[dict]:
+    """Return repo list from --project or --repo, raising Exit on bad input."""
+    from orchestrators.rpi_orchestrator import all_repos
+
+    if project and repo:
+        typer.echo("Pass either --project or --repo, not both.", err=True)
+        raise typer.Exit(code=1)
+    if not project and not repo:
+        typer.echo("Pass --project <name> or --repo <name>.", err=True)
+        raise typer.Exit(code=1)
+
+    if project:
+        try:
+            return all_repos(project=project)
+        except KeyError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+
+    # --repo: find the single matching repo across all projects
+    candidates = [r for r in all_repos() if r["name"] == repo]
+    if not candidates:
+        typer.echo(
+            f"Repo '{repo}' not found in projects.yaml. "
+            "Run `python cli.py rpi status` to list known repos.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    return candidates
+
+
+@rpi_app.command("research")
+def rpi_research(
+    project: Optional[str] = typer.Option(None, "--project", help="Project name from projects.yaml."),
+    repo: Optional[str] = typer.Option(None, "--repo", help="Single repo name."),
+) -> None:
+    """Research phase — runs in parallel across selected repos.
+
+    Reads the task brief from tasks/<repo-name>.md.
+    Repos with no brief (or only the stub placeholder) are skipped with a warning.
+    Output is written to tasks/<repo-name>-RESEARCH.md.
+    """
+    from orchestrators.rpi_orchestrator import run_phase_parallel
+
+    repos = _rpi_resolve_repos(project, repo)
+    scope = f"--project {project}" if project else f"--repo {repo}"
+
+    typer.echo(f"[RPI] Research  ({scope})")
+    typer.echo(f"  Repos: {', '.join(r['name'] for r in repos)}")
+    typer.echo("")
+
+    results: dict[str, bool] = asyncio.run(
+        run_phase_parallel(repos, "research", typer.echo)
+    )
+
+    typer.echo("")
+    _rpi_print_summary("research", results)
+
+
+@rpi_app.command("plan")
+def rpi_plan(
+    project: Optional[str] = typer.Option(None, "--project", help="Project name from projects.yaml."),
+    repo: Optional[str] = typer.Option(None, "--repo", help="Single repo name."),
+) -> None:
+    """Plan phase — runs in parallel across selected repos.
+
+    Reads tasks/<repo-name>.md and (if present) tasks/<repo-name>-RESEARCH.md.
+    Writes tasks/<repo-name>-PLAN.md for each repo.
+    """
+    from orchestrators.rpi_orchestrator import run_phase_parallel
+
+    repos = _rpi_resolve_repos(project, repo)
+    scope = f"--project {project}" if project else f"--repo {repo}"
+
+    typer.echo(f"[RPI] Plan  ({scope})")
+    typer.echo(f"  Repos: {', '.join(r['name'] for r in repos)}")
+    typer.echo("")
+
+    results: dict[str, bool] = asyncio.run(
+        run_phase_parallel(repos, "plan", typer.echo)
+    )
+
+    typer.echo("")
+    _rpi_print_summary("plan", results)
+    if any(results.values()):
+        typer.echo("Review the PLAN.md files in tasks/, then run `rpi implement`.")
+
+
+@rpi_app.command("implement")
+def rpi_implement(
+    project: Optional[str] = typer.Option(None, "--project", help="Project name from projects.yaml."),
+    repo: Optional[str] = typer.Option(None, "--repo", help="Single repo name; coupled repos are auto-included."),
+    no_confirm: bool = typer.Option(False, "--no-confirm", help="Skip the confirmation prompt."),
+) -> None:
+    """Implement phase — gate-checked, coupled-aware, parallel.
+
+    Before running:
+      1. Checks that tasks/<repo-name>-PLAN.md exists for every selected repo
+         (including any auto-expanded coupled repos).  Exits with an error
+         listing missing plans if any are absent.
+      2. Prompts "Proceed with implement for N repos? [y/N]" unless --no-confirm.
+
+    Coupled repos are automatically added from the coupled_with field in
+    projects.yaml, so passing --repo peekr-api will also implement peekr-web.
+    """
+    from orchestrators.rpi_orchestrator import all_repos, expand_coupled, run_phase_parallel
+
+    base_repos = _rpi_resolve_repos(project, repo)
+    all_ = all_repos()
+    repos = expand_coupled(base_repos, all_)
+
+    scope = f"--project {project}" if project else f"--repo {repo}"
+    typer.echo(f"[RPI] Implement  ({scope})")
+
+    added = [r for r in repos if r not in base_repos]
+    if added:
+        typer.echo(f"  Base repos:    {', '.join(r['name'] for r in base_repos)}")
+        typer.echo(f"  Coupled repos: {', '.join(r['name'] for r in added)}")
+    else:
+        typer.echo(f"  Repos: {', '.join(r['name'] for r in repos)}")
+
+    # --- Phase gate: every repo must have a PLAN.md ---
+    tasks_dir = Path("tasks")
+    missing_plans = [
+        r["name"] for r in repos
+        if not (tasks_dir / f"{r['name']}-PLAN.md").exists()
+    ]
+    if missing_plans:
+        typer.echo("", err=True)
+        typer.echo(
+            "\u2717 Cannot implement — PLAN.md missing for the following repo(s):",
+            err=True,
+        )
+        for name in missing_plans:
+            typer.echo(f"    {name}  (run: python cli.py rpi plan --repo {name})", err=True)
+        raise typer.Exit(code=1)
+
+    # --- Confirmation ---
+    typer.echo("")
+    if not no_confirm:
+        confirmed = typer.confirm(
+            f"Proceed with implement for {len(repos)} repo(s)?",
+            default=False,
+        )
+        if not confirmed:
+            typer.echo("Aborted.")
+            raise typer.Exit(code=0)
+        typer.echo("")
+
+    results: dict[str, bool] = asyncio.run(
+        run_phase_parallel(repos, "implement", typer.echo)
+    )
+
+    typer.echo("")
+    _rpi_print_summary("implement", results)
+
+
+@rpi_app.command("status")
+def rpi_status() -> None:
+    """Print a phase-status table for all repos, grouped by project."""
+    from orchestrators.rpi_orchestrator import load_projects, load_status
+
+    status_data = load_status()
+    repo_statuses: dict[str, dict] = status_data.get("repos", {})
+
+    projects_data = load_projects()
+    projects: dict = projects_data.get("projects", {})
+
+    if not projects:
+        typer.echo("No projects found in projects.yaml.")
+        return
+
+    phases = ("research", "plan", "implement")
+    col_repo = 20
+    col_phase = 11
+    col_status = 10
+    col_updated = 22
+    sep = "\u2500" * (col_repo + col_phase + col_status + col_updated + 6)
+
+    for proj_name, proj_data in projects.items():
+        typer.echo(f"\nProject: {proj_name}")
+        typer.echo(
+            f"  {'REPO':<{col_repo}}  {'PHASE':<{col_phase}}  "
+            f"{'STATUS':<{col_status}}  {'UPDATED':<{col_updated}}"
+        )
+        typer.echo(f"  {sep}")
+
+        for repo in (proj_data or {}).get("repos", []):
+            repo_name: str = repo["name"]
+            repo_entry: dict = repo_statuses.get(repo_name, {})
+
+            if not repo_entry:
+                typer.echo(
+                    f"  {repo_name:<{col_repo}}  {'—':<{col_phase}}  "
+                    f"{'no data':<{col_status}}  {'':>{col_updated}}"
+                )
+                continue
+
+            first = True
+            for phase in phases:
+                if phase not in repo_entry:
+                    continue
+                phase_data = repo_entry[phase]
+                label = repo_name if first else ""
+                first = False
+                typer.echo(
+                    f"  {label:<{col_repo}}  {phase:<{col_phase}}  "
+                    f"{phase_data.get('status', '?'):<{col_status}}  "
+                    f"{phase_data.get('updated', ''):<{col_updated}}"
+                )
+
+            if first:
+                # repo exists in projects.yaml but has no phase entries yet
+                typer.echo(
+                    f"  {repo_name:<{col_repo}}  {'—':<{col_phase}}  "
+                    f"{'pending':<{col_status}}  {'':>{col_updated}}"
+                )
+
+    typer.echo("")
+
+
+def _rpi_print_summary(phase: str, results: dict[str, bool]) -> None:
+    done = [name for name, ok in results.items() if ok]
+    not_done = [name for name, ok in results.items() if not ok]
+
+    if done:
+        typer.echo(f"{phase} done: {', '.join(done)}")
+    if not_done:
+        typer.echo(f"{phase} skipped/failed: {', '.join(not_done)}")
 
 
 # ---------------------------------------------------------------------------

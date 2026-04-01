@@ -1,0 +1,72 @@
+# projects.yaml — project registry for the RPI workflow.
+#
+# Each project groups one or more repos that belong to the same product.
+# coupled_with lists other repo NAMES (not app_ids) within the same project
+# that must move together when implementing a feature.
+#
+# app_id must exactly match an id in config/apps.yaml.
+# stack must be one of: react | fastapi | java-spring | node-express
+#
+# To add a new project: add an entry here — no Python changes required.
+
+projects:
+  new-hire:
+    repos:
+      - name: new-hire-api
+        app_id: new-hire
+        stack: fastapi
+        # API and web move together for any full-stack feature.
+        coupled_with:
+          - new-hire-web
+
+      - name: new-hire-web
+        app_id: new-hire
+        stack: react
+        coupled_with:
+          - new-hire-api
+
+  new-client:
+    repos:
+      - name: new-client-api
+        app_id: new-client
+        stack: fastapi
+        coupled_with:
+          - new-client-web
+
+      - name: new-client-web
+        app_id: new-client
+        stack: react
+        coupled_with:
+          - new-client-api
+
+  agm:
+    repos:
+      - name: agm-api
+        app_id: agm
+        stack: java-spring
+        coupled_with:
+          - agm-web
+          # TODO: determine whether agm-api is coupled with peekr-api
+          # (both live in workspace-b — add peekr-api here if they share domain models)
+
+      - name: agm-web
+        app_id: agm
+        stack: react
+        coupled_with:
+          - agm-api
+
+  peekr:
+    repos:
+      - name: peekr-api
+        app_id: peekr
+        stack: java-spring
+        coupled_with:
+          - peekr-web
+          # TODO: determine whether peekr-api is coupled with agm-api
+          # (both live in workspace-b — add agm-api here if they share domain models)
+
+      - name: peekr-web
+        app_id: peekr
+        stack: react
+        coupled_with:
+          - peekr-api
