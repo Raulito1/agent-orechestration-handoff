@@ -14,7 +14,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-import anthropic
+from utils.roo_client import RooClient
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -206,8 +206,8 @@ class WorkIntelligence:
     All Anthropic API calls are isolated here so tests can mock them cleanly.
     """
 
-    def __init__(self, client: anthropic.Anthropic | None = None) -> None:
-        self._client = client or anthropic.Anthropic()
+    def __init__(self, client: RooClient | None = None) -> None:
+        self._client = client or RooClient()
 
     # ------------------------------------------------------------------
     # Public API

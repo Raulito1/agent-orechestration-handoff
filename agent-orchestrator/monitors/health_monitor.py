@@ -21,8 +21,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-import anthropic
 import httpx
+
+from utils.roo_client import RooClient
 
 from orchestrators.base_orchestrator import BaseOrchestrator
 
@@ -272,7 +273,7 @@ def _synthesize_insight(
     guard_summaries: list[AppGuardSummary],
     bug_activity: BugActivitySummary,
     top_patterns: list[PatternSummary],
-    client: anthropic.Anthropic,
+    client: RooClient,
 ) -> str:
     data = {
         "guard_summary": [
@@ -378,7 +379,7 @@ def write_output_file(digest: HealthDigest) -> Path:
 def run_health_monitor(
     app_ids: list[str] | None = None,
     no_slack: bool = False,
-    client: anthropic.Anthropic | None = None,
+    client: RooClient | None = None,
 ) -> HealthDigest:
     """Run the full health monitor and return the digest.
 
@@ -398,7 +399,7 @@ def run_health_monitor(
     else:
         target_apps = all_apps
 
-    anthropic_client = client or anthropic.Anthropic()
+    anthropic_client = client or RooClient()
     run_date = date.today().isoformat()
 
     # 1. Guard scan (read-only, no PR comments)

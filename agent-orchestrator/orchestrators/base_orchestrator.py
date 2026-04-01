@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
 
-import anthropic
 import yaml
+
+from utils.roo_client import RooClient
 
 from connectors.base_connector import BaseConnector
 from connectors.bitbucket_connector import BitbucketConnector
@@ -45,6 +46,5 @@ class BaseOrchestrator:
         full_path = _CONFIG_DIR / context_path
         return full_path.read_text(encoding="utf-8")
 
-    def get_anthropic_client(self) -> anthropic.Anthropic:
-        # API key is read automatically from ANTHROPIC_API_KEY env var by the SDK.
-        return anthropic.Anthropic()
+    def get_anthropic_client(self) -> RooClient:
+        return RooClient()

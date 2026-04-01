@@ -8,7 +8,7 @@ import json
 import re
 from dataclasses import dataclass
 
-import anthropic
+from utils.roo_client import RooClient
 
 from agents.fastapi_agent import BackendGenerationResult, _parse_contract
 
@@ -66,10 +66,10 @@ class JavaAgent:
 
     def __init__(
         self,
-        client: anthropic.Anthropic | None = None,
+        client: RooClient | None = None,
         system_prompt: str = "",
     ) -> None:
-        self._client = client or anthropic.Anthropic()
+        self._client = client or RooClient()
         self._system_prompt = system_prompt or "You are a Java Spring Boot code generation expert."
 
     def generate(self, description: str, app_name: str) -> BackendGenerationResult:

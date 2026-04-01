@@ -8,7 +8,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-import anthropic
+from utils.roo_client import RooClient
 
 
 @dataclass
@@ -77,10 +77,10 @@ class FastAPIAgent:
 
     def __init__(
         self,
-        client: anthropic.Anthropic | None = None,
+        client: RooClient | None = None,
         system_prompt: str = "",
     ) -> None:
-        self._client = client or anthropic.Anthropic()
+        self._client = client or RooClient()
         self._system_prompt = system_prompt or "You are a FastAPI code generation expert."
 
     def generate(self, description: str, app_name: str) -> BackendGenerationResult:
